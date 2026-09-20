@@ -20,7 +20,9 @@ chat_service = ChatService()
 @router.post("/message", response_model=ChatMessageResponse)
 def send_chat_message(request: ChatMessageRequest):
     """Send a message to the financial chatbot and receive a grounded response with detected actions."""
-    user_id = request.user_id or "usr_demo_01"
+    user_id = request.user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Authenticated user ID is required")
     return chat_service.handle_chat_message(
         message=request.message,
         user_id=user_id,

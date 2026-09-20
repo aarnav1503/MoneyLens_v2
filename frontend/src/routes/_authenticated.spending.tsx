@@ -4,9 +4,10 @@ import { AppShell } from "@/components/app-shell";
 import { CashflowChart } from "@/components/dashboard/charts";
 import { Badge, PageHeader, Panel } from "@/components/dashboard/ui";
 import { currency } from "@/lib/dashboard-data";
-import { useSpending, useProfile, useStatementTransactions, useUploadStatement } from "@/hooks/use-money-lens";
+import { useSpending, useProfile, useStatementTransactions, useUploadStatement, useConfirmObservation } from "@/hooks/use-money-lens";
 import { cn } from "@/lib/utils";
-import { Upload, Shield, CheckCircle2, AlertCircle, Lock, X, FileText, RefreshCw } from "lucide-react";
+import { Upload, Shield, CheckCircle2, AlertCircle, Lock, X, FileText, RefreshCw, Eye } from "lucide-react";
+import type { StatementAnalysisSummary } from "@/lib/api-client";
 
 export const Route = createFileRoute("/_authenticated/spending")({
   head: () => ({
@@ -39,6 +40,9 @@ function SpendingPage() {
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [lastSummary, setLastSummary] = useState<StatementAnalysisSummary | null>(null);
+  
+  const confirmObservationMutation = useConfirmObservation();
 
   const categories = useMemo(() => {
     if (liveSpending?.categories && liveSpending.categories.length > 0) {
@@ -102,12 +106,41 @@ function SpendingPage() {
     setUploadError(null);
 
     try {
-      await uploadMutation.mutateAsync({ file: selectedFile, saveRaw });
-      setUploadStatus(`Statement "${selectedFile.name}" successfully parsed. Telemetry and metrics synchronized.`);
+      const summary = await uploadMutation.mutateAsync({ file: selectedFile, saveRaw });
+      setLastSummary(summary);
+      setUploadStatus(`Statement "${selectedFile.name}" successfully parsed using ${summary.extraction_source === 'ocr' ? 'OCR Fallback' : 'Native Parsing'}.`);
     } catch (err: any) {
       setUploadError(err.message || "Failed to process statement. Please ensure it is a valid CSV or PDF bank statement.");
     } finally {
       setSelectedFile(null);
+    }
+  };
+
+  const handleConfirmObservation = async (obs: any) => {
+    try {
+      await confirmObservationMutation.mutateAsync({
+        type: obs.type,
+        field: obs.field,
+        value: obs.amount,
+      });
+      // Remove it from the list
+      if (lastSummary && lastSummary.pending_observations) {
+        setLastSummary({
+          ...lastSummary,
+          pending_observations: lastSummary.pending_observations.filter((o) => o !== obs),
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDismissObservation = (obs: any) => {
+    if (lastSummary && lastSummary.pending_observations) {
+      setLastSummary({
+        ...lastSummary,
+        pending_observations: lastSummary.pending_observations.filter((o) => o !== obs),
+      });
     }
   };
 
@@ -154,6 +187,57 @@ function SpendingPage() {
           <button onClick={() => setUploadStatus(null)} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* Statement Review Panel */}
+      {lastSummary && lastSummary.pending_observations && lastSummary.pending_observations.length > 0 && (
+        <div className="mt-4 rounded-xl border border-primary/20 bg-background shadow-xs overflow-hidden">
+          <div className="bg-primary/5 px-5 py-3 border-b border-primary/10 flex items-center gap-2">
+            <Eye className="h-4 w-4 text-primary" />
+            <h3 className="font-medium text-sm text-foreground">Statement Intelligence Review</h3>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              We detected the following signals in your recent statement upload. Confirm these observations to update your central financial profile.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {lastSummary.pending_observations.map((obs, idx) => (
+                <div key={idx} className="p-4 rounded-lg border border-border bg-surface-muted flex flex-col gap-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-foreground">{obs.description}</h4>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-background text-muted-foreground border border-border">
+                        {(obs.confidence * 100).toFixed(0)}% CONFIDENCE
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Current profile value: {currency(obs.current_value)}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center justify-between mt-auto pt-2">
+                    <span className="numeric text-lg font-bold text-primary">{currency(obs.amount)}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDismissObservation(obs)}
+                        className="text-xs px-3 py-1.5 rounded-md hover:bg-background border border-transparent hover:border-border text-subtle-foreground hover:text-foreground transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                      <button
+                        onClick={() => handleConfirmObservation(obs)}
+                        disabled={confirmObservationMutation.isPending}
+                        className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
+                      >
+                        Update Profile
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

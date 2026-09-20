@@ -20,6 +20,17 @@ class StatementTransactionItem(BaseModel):
     category: str = Field(default="Other")
     is_recurring: bool = False
     is_essential: bool = False
+    source: str = Field(default="text", description="'text' or 'ocr'")
+    confidence: float = Field(default=0.95, ge=0.0, le=1.0)
+
+
+class PendingObservation(BaseModel):
+    type: str  # salary_detected, emi_detected, investment_detected, recurring_detected
+    field: str  # profile field to update
+    amount: float
+    description: str
+    confidence: float
+    current_value: float  # existing profile value for comparison
 
 
 class StatementAnalysisSummary(BaseModel):
@@ -39,3 +50,9 @@ class StatementAnalysisSummary(BaseModel):
     frequent_merchants: List[Dict[str, Any]] = Field(default_factory=list)
     observations: List[str] = Field(default_factory=list)
     profile_discrepancies: List[Dict[str, Any]] = Field(default_factory=list)
+    extraction_source: str = "text"
+    detected_salary: Optional[float] = None
+    detected_emis: List[Dict[str, Any]] = Field(default_factory=list)
+    detected_investments: List[Dict[str, Any]] = Field(default_factory=list)
+    detected_recurring: List[Dict[str, Any]] = Field(default_factory=list)
+    pending_observations: List[PendingObservation] = Field(default_factory=list)

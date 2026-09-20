@@ -59,7 +59,8 @@ function Dashboard() {
   const { data: liveTransactions = [] } = useStatementTransactions();
 
   const userName = profile?.name || "User";
-  const netWorthValue = (profile?.current_savings || 0) + (profile?.monthly_investments || 0) * 12 - (profile?.active_loans || 0);
+  // Net worth = Assets (Savings) - Liabilities (Loans)
+  const netWorthValue = (profile?.current_savings || 0) - (profile?.active_loans || 0);
   const cashOnHandValue = profile?.current_savings || 0;
   const monthlySpendValue = spendingData?.total_spending || profile?.total_monthly_expenses || 0;
   const savingsRateValue = `${profile?.savings_rate_pct || 0}%`;

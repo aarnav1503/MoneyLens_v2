@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { NetWorthChart } from "@/components/dashboard/charts";
@@ -36,7 +36,6 @@ function AccountsPage() {
   const updateProfileMutation = useUpdateProfile();
   const [isEditing, setIsEditing] = useState(false);
 
-  // Form states initialized with live profile
   const [income, setIncome] = useState(profile?.monthly_income || 0);
   const [essential, setEssential] = useState(profile?.essential_expenses || 0);
   const [discretionary, setDiscretionary] = useState(profile?.discretionary_expenses || 0);
@@ -44,6 +43,20 @@ function AccountsPage() {
   const [investments, setInvestments] = useState(profile?.monthly_investments || 0);
   const [emis, setEmis] = useState(profile?.active_emis || 0);
   const [loans, setLoans] = useState(profile?.active_loans || 0);
+
+  // Sync form state when profile data arrives
+  useEffect(() => {
+    if (profile) {
+      setIncome(profile.monthly_income || 0);
+      setEssential(profile.essential_expenses || 0);
+      setDiscretionary(profile.discretionary_expenses || 0);
+      setSavings(profile.current_savings || 0);
+      setInvestments(profile.monthly_investments || 0);
+      setEmis(profile.active_emis || 0);
+      setLoans(profile.active_loans || 0);
+    }
+  }, [profile]);
+
 
   const assets = (profile?.current_savings || 0) + (profile?.monthly_investments || 0) * 12;
   const liabilities = profile?.active_loans || 0;

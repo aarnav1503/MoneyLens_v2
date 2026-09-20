@@ -4,7 +4,7 @@
  */
 
 const API_BASE_URL = typeof window !== 'undefined' 
-  ? (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1')
+  ? (import.meta.env['VITE_API_BASE_URL'] || 'http://localhost:8000/api/v1')
   : 'http://localhost:8000/api/v1';
 
 export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -51,7 +51,7 @@ export interface UserFinancialProfile {
   health_score: number;
 }
 
-export async function fetchProfile(userId: string = "usr_demo_01"): Promise<UserFinancialProfile> {
+export async function fetchProfile(userId: string): Promise<UserFinancialProfile> {
   try {
     return await apiFetch<UserFinancialProfile>(`/profile?user_id=${encodeURIComponent(userId)}`);
   } catch (err) {
@@ -76,7 +76,7 @@ export async function fetchProfile(userId: string = "usr_demo_01"): Promise<User
   }
 }
 
-export async function updateProfile(updates: Partial<UserFinancialProfile>, userId: string = "usr_demo_01"): Promise<UserFinancialProfile> {
+export async function updateProfile(updates: Partial<UserFinancialProfile>, userId: string): Promise<UserFinancialProfile> {
   return apiFetch<UserFinancialProfile>(`/profile?user_id=${encodeURIComponent(userId)}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
@@ -116,7 +116,7 @@ export interface SpendingInsightsResponse {
   }[];
 }
 
-export async function fetchSpendingInsights(userId: string = "usr_demo_01"): Promise<SpendingInsightsResponse> {
+export async function fetchSpendingInsights(userId: string): Promise<SpendingInsightsResponse> {
   return apiFetch<SpendingInsightsResponse>(`/spending/insights?user_id=${encodeURIComponent(userId)}`);
 }
 
@@ -132,9 +132,43 @@ export interface StatementTransactionItem {
   category: string;
   is_recurring: boolean;
   is_essential: boolean;
+  source?: string;
+  confidence?: number;
 }
 
-export async function uploadBankStatement(file: File, saveRaw: boolean, userId: string = "usr_demo_01") {
+export interface PendingObservation {
+  type: string;
+  field: string;
+  amount: number;
+  description: string;
+  confidence: number;
+  current_value: number;
+}
+
+export interface StatementAnalysisSummary {
+  statement_id: string;
+  filename: string;
+  save_raw: boolean;
+  total_credits: number;
+  total_debits: number;
+  net_cashflow: number;
+  transaction_count: number;
+  date_range_start: string | null;
+  date_range_end: string | null;
+  category_breakdown: Record<string, number>;
+  essential_spending: number;
+  discretionary_spending: number;
+  recurring_spending: number;
+  observations: string[];
+  extraction_source?: string;
+  detected_salary?: number;
+  detected_emis?: any[];
+  detected_investments?: any[];
+  detected_recurring?: any[];
+  pending_observations?: PendingObservation[];
+}
+
+export async function uploadBankStatement(file: File, saveRaw: boolean, userId: string): Promise<StatementAnalysisSummary> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('save_raw', String(saveRaw));
@@ -153,12 +187,29 @@ export async function uploadBankStatement(file: File, saveRaw: boolean, userId: 
   return res.json();
 }
 
-export async function fetchStatementTransactions(userId: string = "usr_demo_01"): Promise<StatementTransactionItem[]> {
+export async function fetchStatementTransactions(userId: string): Promise<StatementTransactionItem[]> {
   try {
     return await apiFetch<StatementTransactionItem[]>(`/statements/transactions?user_id=${encodeURIComponent(userId)}`);
   } catch {
     return [];
   }
+}
+
+export async function confirmStatementObservation(
+  observationType: string,
+  field: string,
+  value: number,
+  userId: string
+): Promise<UserFinancialProfile> {
+  return apiFetch<UserFinancialProfile>('/statements/confirm-observation', {
+    method: 'POST',
+    body: JSON.stringify({
+      observation_type: observationType,
+      field,
+      value,
+      user_id: userId,
+    }),
+  });
 }
 
 
@@ -176,9 +227,9 @@ export interface GoalItem {
   priority?: string;
 }
 
-export async function fetchGoals(): Promise<GoalItem[]> {
+export async function fetchGoals(userId: string): Promise<GoalItem[]> {
   try {
-    return await apiFetch<GoalItem[]>('/goals/saved');
+    return await apiFetch<GoalItem[]>(`/goals/saved?user_id=${encodeURIComponent(userId)}`);
   } catch {
     return [];
   }
@@ -191,15 +242,15 @@ export async function createGoal(goal: {
   current_savings_allocated?: number;
   category?: string;
   priority?: string;
-}): Promise<GoalItem> {
-  return apiFetch<GoalItem>('/goals/save', {
+}, userId: string): Promise<GoalItem> {
+  return apiFetch<GoalItem>(`/goals/save?user_id=${encodeURIComponent(userId)}`, {
     method: 'POST',
     body: JSON.stringify(goal),
   });
 }
 
-export async function deleteGoal(goalId: string): Promise<{ success: boolean }> {
-  return apiFetch<{ success: boolean }>(`/goals/saved/${goalId}`, {
+export async function deleteGoal(goalId: string, userId: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/goals/saved/${goalId}?user_id=${encodeURIComponent(userId)}`, {
     method: 'DELETE',
   });
 }
@@ -238,7 +289,7 @@ export async function simulateEMI(payload: {
 // ----------------------------------------------------------------------
 // 6. Conversational Chatbot
 // ----------------------------------------------------------------------
-export async function sendChatMessage(message: string, sessionId?: string, userId: string = "usr_demo_01") {
+export async function sendChatMessage(message: string, sessionId?: string, userId?: string) {
   return apiFetch<any>('/chat/message', {
     method: 'POST',
     body: JSON.stringify({
@@ -250,7 +301,7 @@ export async function sendChatMessage(message: string, sessionId?: string, userI
   });
 }
 
-export async function confirmChatAction(actionType: 'UPDATE_PROFILE' | 'CREATE_GOAL', data: any, userId: string = "usr_demo_01") {
+export async function confirmChatAction(actionType: 'UPDATE_PROFILE' | 'CREATE_GOAL', data: any, userId: string) {
   return apiFetch<any>('/chat/confirm-action', {
     method: 'POST',
     body: JSON.stringify({

@@ -111,8 +111,17 @@ export function LovableChatDrawer({
             : m
         )
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err_${Date.now()}`,
+          sender: "system",
+          text: err.message || "Action failed. Please try again.",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
     }
   };
 
@@ -182,7 +191,13 @@ export function LovableChatDrawer({
                     <button
                       onClick={() =>
                         setMessages((prev) =>
-                          prev.map((m) => (m.id === msg.id ? { ...m, action_payload: undefined } : m))
+                          prev.map((m) => {
+                            if (m.id === msg.id) {
+                              const { action_payload, ...rest } = m;
+                              return rest;
+                            }
+                            return m;
+                          })
                         )
                       }
                       className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer"

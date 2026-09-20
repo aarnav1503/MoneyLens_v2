@@ -61,7 +61,7 @@ class ChatService:
         msg_lower = message.lower()
 
         profile = self.profile_service.get_profile(user_id)
-        current_goals = self.goal_service.get_saved_goals()
+        current_goals = self.goal_service.get_saved_goals(user_id)
         spending_data = self.spending_service.get_spending_insights(user_id)
 
         # ----------------------------------------------------------------
@@ -168,10 +168,51 @@ class ChatService:
                 )
 
         # ----------------------------------------------------------------
-        # 4. EMI UPDATE
-        # Triggers: "emi", "loan emi", "monthly emi"
+        # 4. LOAN / EMI UPDATE
+        # Triggers: "loan", "emi", "loan emi", "monthly emi"
         # ----------------------------------------------------------------
         emi_keywords = ["emi", "loan emi", "monthly emi", "installment", "home loan emi", "car emi", "car loan"]
+        loan_keywords = ["loan", "borrowed", "debt"]
+        
+        # Check for complex loan + EMI (e.g., "I have a 2 lakh loan with 6000 EMI")
+        if any(kw in msg_lower for kw in loan_keywords) and any(kw in msg_lower for kw in emi_keywords):
+            # Try to extract two amounts. This is basic; we'll assume the larger is loan and smaller is EMI.
+            numbers = [float(x.replace(",", "")) for x in re.findall(r'\d+(?:,\d+)*(?:\.\d+)?', message)]
+            # Also try intent service for lakh/k words
+            parsed_amt = self._parse_amount_from_message(message)
+            
+            amounts = []
+            if parsed_amt: amounts.append(parsed_amt)
+            amounts.extend(numbers)
+            amounts = sorted(list(set([a for a in amounts if a > 0])), reverse=True)
+            
+            if len(amounts) >= 2:
+                loan_amt = amounts[0]
+                emi_amt = amounts[1]
+                
+                # If they say "2 lakh loan with 6k EMI", parsed_amt might be 200000. numbers might have 6000.
+                if loan_amt > emi_amt:
+                    action = PendingActionPayload(
+                        action_type="UPDATE_LOAN",
+                        title="Loan & EMI Update Detected",
+                        description=f"Update active loans to ₹{loan_amt:,.0f} and monthly EMI to ₹{emi_amt:,.0f}",
+                        data={"active_loans": loan_amt, "active_emis": emi_amt, "field": "Loans and EMIs"},
+                    )
+                    dti = round((emi_amt / max(1, profile.monthly_income)) * 100, 1)
+                    return ChatMessageResponse(
+                        message_id=msg_id,
+                        session_id=session_id,
+                        reply=(
+                            f"I detected a total loan of ₹{loan_amt:,.0f} with a monthly EMI of ₹{emi_amt:,.0f}. "
+                            f"This EMI is {dti}% of your reported income. "
+                            "Should I update your profile with this loan and EMI?"
+                        ),
+                        action_payload=action,
+                        evidence=f"Proposed Loan: ₹{loan_amt:,.0f} | Proposed EMI: ₹{emi_amt:,.0f}",
+                        relevant_metrics={"proposed_loan": loan_amt, "proposed_emi": emi_amt, "dti_pct": dti},
+                        suggested_followups=["Yes, update my loan details", "Cancel"],
+                    )
+
         if any(kw in msg_lower for kw in emi_keywords):
             amount_val = self._parse_amount_from_message(message)
             if amount_val:
@@ -343,10 +384,16 @@ class ChatService:
         )
 
     def confirm_action(self, request: ConfirmActionRequest) -> ConfirmActionResponse:
-        """Executes a confirmed natural language action."""
-        user_id = request.user_id or "usr_demo_01"
+        """Executes a confirmed natural language action. user_id MUST be present."""
+        user_id = request.user_id
+        if not user_id:
+            return ConfirmActionResponse(
+                status="error",
+                message="User identity is required to save changes. Please log in and try again.",
+                updated_entity={},
+            )
 
-        if request.action_type == "UPDATE_PROFILE":
+        if request.action_type in ["UPDATE_PROFILE", "UPDATE_LOAN"]:
             update_data = request.data
             # Filter to only valid FinancialProfileUpdate fields
             valid_fields = set(FinancialProfileUpdate.model_fields.keys())
@@ -356,13 +403,16 @@ class ChatService:
                     status="error",
                     message="No valid profile fields to update.",
                     updated_entity={},
+                    invalidated_queries=[]
                 )
             updates = FinancialProfileUpdate(**filtered)
+            # Will raise DatabaseConnectionError if DB write fails — caller gets a 500
             updated_prof = self.profile_service.update_profile(user_id, updates)
             return ConfirmActionResponse(
                 status="success",
-                message=f"Profile successfully updated. New monthly surplus: ₹{updated_prof.monthly_surplus:,.0f}, health score: {updated_prof.health_score}/100.",
+                message=f"Profile updated. New surplus: ₹{updated_prof.monthly_surplus:,.0f}/month, health score: {updated_prof.health_score}/100.",
                 updated_entity=updated_prof.model_dump(),
+                invalidated_queries=["profile", "spending", "goals", "statement_transactions"]
             )
 
         elif request.action_type == "CREATE_GOAL":
@@ -374,15 +424,18 @@ class ChatService:
                 category=goal_data.get("category", "major_purchase"),
                 current_savings_allocated=0.0,
             )
-            saved_goal = self.goal_service.save_goal(create_req)
+            # Will raise DatabaseConnectionError if DB write fails — caller gets a 500
+            saved_goal = self.goal_service.save_goal(user_id, create_req)
             return ConfirmActionResponse(
                 status="success",
-                message=f"Goal '{saved_goal.title}' successfully created.",
+                message=f"Goal '{saved_goal.title}' saved to your profile.",
                 updated_entity=saved_goal.model_dump(),
+                invalidated_queries=["goals", "profile"]
             )
 
         return ConfirmActionResponse(
             status="error",
             message="Unknown action type.",
             updated_entity={},
+            invalidated_queries=[]
         )

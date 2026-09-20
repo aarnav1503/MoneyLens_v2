@@ -14,6 +14,6 @@ spending_service = SpendingService()
 
 
 @router.get("/insights", response_model=SpendingInsightsResponse)
-def get_spending_insights(user_id: Optional[str] = Query(default="usr_demo_01")):
+def get_spending_insights(user_id: str = Query(..., description="Authenticated user ID")):
     """Get categorized spending insights and observations."""
     return spending_service.get_spending_insights(user_id)

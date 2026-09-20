@@ -21,6 +21,8 @@ STANDARD_SPENDING_CATEGORIES = [
     "Healthcare",
     "Education",
     "Travel",
+    "Investments",
+    "EMI/Loan",
     "Other",
 ]
 

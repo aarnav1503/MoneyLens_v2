@@ -22,108 +22,30 @@ from app.schemas.goals import (
 )
 
 
-class InMemoryGoalRepository:
-    """In-memory store for user financial goals."""
-
-    def __init__(self):
-        self._storage: Dict[str, Dict[str, Any]] = {}
-        self._seed_sample_goals()
-
-    def _seed_sample_goals(self):
-        sample_goals = [
-            {
-                "title": "Emergency Fund Corpus",
-                "target_amount": 300000.0,
-                "current_savings_allocated": 100000.0,
-                "target_months": 12,
-                "target_date": date(2027, 9, 1),
-                "category": "Emergency",
-                "priority": "high"
-            },
-            {
-                "title": "International Vacation Fund",
-                "target_amount": 150000.0,
-                "current_savings_allocated": 20000.0,
-                "target_months": 6,
-                "target_date": date(2027, 3, 1),
-                "category": "Travel",
-                "priority": "medium"
-            }
-        ]
-        for g in sample_goals:
-            self.create(GoalCreateRequest(**g))
-
-    def create(self, data: GoalCreateRequest) -> GoalResponse:
-        goal_id = f"goal_{uuid.uuid4().hex[:12]}"
-        record = {
-            "id": goal_id,
-            **data.model_dump()
-        }
-        self._storage[goal_id] = record
-        return GoalResponse(**record)
-
-    def get_all(self) -> List[GoalResponse]:
-        return [GoalResponse(**r) for r in self._storage.values()]
-
-    def get_by_id(self, goal_id: str) -> Optional[GoalResponse]:
-        record = self._storage.get(goal_id)
-        if record:
-            return GoalResponse(**record)
-        return None
-
-    def delete(self, goal_id: str) -> bool:
-        if goal_id in self._storage:
-            del self._storage[goal_id]
-            return True
-        return False
+# InMemoryGoalRepository removed — all goal storage goes through PostgresGoalRepository.
+# For in-memory fallback, PostgresGoalRepository uses _SHARED_GOALS module-level dict.
 
 
-from app.core.config import settings
 from app.repositories.postgres_goal_repo import PostgresGoalRepository
 
 
-class GoalRepositoryProxy:
-    """
-    Repository interface proxy for GoalRepository.
-    Directs operations to PostgresGoalRepository when database configuration is present.
-    Uses InMemoryGoalRepository when no database configuration is provided (local dev/testing).
-    If database configuration is present but connection fails, PostgresGoalRepository surfaces the error directly.
-    """
+class GoalService:
+    """Goal evaluation and calculation engine with full user isolation."""
 
     def __init__(self):
-        self._in_memory = InMemoryGoalRepository()
-        self._postgres = PostgresGoalRepository()
+        self.repository = PostgresGoalRepository()
 
-    @property
-    def active_repo(self):
-        if settings.is_db_configured():
-            return self._postgres
-        return self._in_memory
+    def get_saved_goals(self, user_id: str) -> List[GoalResponse]:
+        return self.repository.get_all(user_id)
 
-    def create(self, data: GoalCreateRequest) -> GoalResponse:
-        return self.active_repo.create(data)
+    def save_goal(self, user_id: str, req: GoalCreateRequest) -> GoalResponse:
+        return self.repository.create(user_id, req)
 
-    def get_all(self) -> List[GoalResponse]:
-        return self.active_repo.get_all()
+    def delete_goal(self, user_id: str, goal_id: str) -> bool:
+        return self.repository.delete(user_id, goal_id)
 
-    def get_by_id(self, goal_id: str) -> Optional[GoalResponse]:
-        return self.active_repo.get_by_id(goal_id)
-
-    def delete(self, goal_id: str) -> bool:
-        return self.active_repo.delete(goal_id)
-
-
-class GoalService:
-    """Goal evaluation and calculation engine."""
-
-    def __init__(self, repository=None):
-        self.repository = repository if repository is not None else GoalRepositoryProxy()
-
-    def get_saved_goals(self) -> List[GoalResponse]:
-        return self.repository.get_all()
-
-    def save_goal(self, req: GoalCreateRequest) -> GoalResponse:
-        return self.repository.create(req)
+    def get_goal_by_id(self, user_id: str, goal_id: str) -> Optional[GoalResponse]:
+        return self.repository.get_by_id(user_id, goal_id)
 
     @staticmethod
     def calculate_forward_goal(req: GoalCalculationRequest) -> GoalCalculationResponse:

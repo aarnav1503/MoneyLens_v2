@@ -30,81 +30,8 @@ class InMemoryTransactionRepository:
         self._seed_sample_data()
 
     def _seed_sample_data(self):
-        """Seed starter data reflecting standard monthly transactions."""
-        sample_records = [
-            {
-                "title": "Primary Salary Deposit",
-                "type": TransactionType.INCOME,
-                "amount": 80000.0,
-                "category": "Salary",
-                "transaction_date": date(2026, 9, 1),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Monthly corporate payroll deposit"
-            },
-            {
-                "title": "Apartment Rent",
-                "type": TransactionType.EXPENSE,
-                "amount": 20000.0,
-                "category": "Rent",
-                "transaction_date": date(2026, 9, 2),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Monthly house rent"
-            },
-            {
-                "title": "Groceries & Supermarket",
-                "type": TransactionType.EXPENSE,
-                "amount": 10000.0,
-                "category": "Groceries",
-                "transaction_date": date(2026, 9, 5),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Provisions & essentials"
-            },
-            {
-                "title": "Electricity & Wi-Fi Utilities",
-                "type": TransactionType.EXPENSE,
-                "amount": 4000.0,
-                "category": "Utilities",
-                "transaction_date": date(2026, 9, 7),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Power & broadband bill"
-            },
-            {
-                "title": "Streaming Subscriptions",
-                "type": TransactionType.EXPENSE,
-                "amount": 1500.0,
-                "category": "Subscriptions",
-                "transaction_date": date(2026, 9, 8),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Netflix, Spotify, Cloud Storage"
-            },
-            {
-                "title": "Dining & Food Delivery",
-                "type": TransactionType.EXPENSE,
-                "amount": 5500.0,
-                "category": "Dining",
-                "transaction_date": date(2026, 9, 12),
-                "is_recurring": False,
-                "recurring_frequency": RecurringFrequency.NONE,
-                "description": "Weekend dining & cafes"
-            },
-            {
-                "title": "Commute & Fuel",
-                "type": TransactionType.EXPENSE,
-                "amount": 4000.0,
-                "category": "Transport",
-                "transaction_date": date(2026, 9, 14),
-                "is_recurring": True,
-                "recurring_frequency": RecurringFrequency.MONTHLY,
-                "description": "Metro pass & petrol"
-            }
-        ]
-        for item in sample_records:
-            self.create(TransactionCreate(**item))
+        """No demo data. Users start with an empty transaction store."""
+        pass
 
     def create(self, data: TransactionCreate) -> TransactionResponse:
         txn_id = f"txn_{uuid.uuid4().hex[:12]}"

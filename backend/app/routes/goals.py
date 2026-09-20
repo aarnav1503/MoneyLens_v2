@@ -1,10 +1,10 @@
 """
 Goals API Routes.
-Provides endpoints for goal feasibility calculation and reverse engineering.
+All endpoints require user_id and are scoped to the authenticated user.
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, status, HTTPException, Body
+from fastapi import APIRouter, status, HTTPException, Body, Query
 from app.schemas.goals import (
     GoalCalculationRequest,
     GoalCalculationResponse,
@@ -30,14 +30,7 @@ router = APIRouter(prefix="/goals", tags=["Goal Engine"])
     summary="Calculate financial goal feasibility"
 )
 def calculate_goal_feasibility_endpoint(payload: GoalCalculationRequest):
-    """
-    Calculate whether a financial target is reachable:
-    - Remaining amount needed
-    - Required monthly saving rate
-    - Comparison with current disposable surplus
-    - Feasibility status ('reachable', 'stretch_goal', 'unreachable_without_adjustment')
-    - Estimated completion months at current pace
-    """
+    """Calculate whether a financial target is reachable."""
     return goal_service.calculate_forward_goal(payload)
 
 
@@ -48,10 +41,6 @@ def calculate_goal_feasibility_endpoint(payload: GoalCalculationRequest):
     summary="Calculate financial goal feasibility with AI insight interpretation"
 )
 def calculate_and_analyze_goal_endpoint(payload: GoalCalculationRequest):
-    """
-    Calculates goal feasibility via the deterministic engine, resolves title,
-    dispatches payload to the independent AI service, and returns structured insights.
-    """
     try:
         return ai_insight_service.analyze_goal(
             req=payload,
@@ -59,10 +48,7 @@ def calculate_and_analyze_goal_endpoint(payload: GoalCalculationRequest):
             context_note=payload.context_note
         )
     except AIInsightServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message
-        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -70,21 +56,13 @@ def calculate_and_analyze_goal_endpoint(payload: GoalCalculationRequest):
         )
 
 
-
 @router.post(
     "/reverse",
     response_model=ReverseGoalResponse,
     status_code=status.HTTP_200_OK,
-    summary="Reverse goal engineering ('I want ₹X in N months')"
+    summary="Reverse goal engineering"
 )
 def calculate_reverse_goal_endpoint(payload: ReverseGoalRequest):
-    """
-    Reverse goal calculation:
-    Given a target amount and timeframe:
-    - Calculates exact required monthly saving
-    - Computes additional monthly amount needed vs current surplus
-    - Proposes actionable trade-off levers (expense reduction %, income boost %, timeline adjustment)
-    """
     return goal_service.calculate_reverse_goal_engine(payload)
 
 
@@ -95,21 +73,13 @@ def calculate_reverse_goal_endpoint(payload: ReverseGoalRequest):
     summary="Reverse goal engineering with AI insight interpretation"
 )
 def calculate_and_analyze_reverse_goal_endpoint(payload: ReverseGoalRequest):
-    """
-    Computes reverse goal feasibility via the deterministic engine,
-    formats and dispatches the payload to the independent AI service,
-    and returns both the deterministic calculations and AI insights.
-    """
     try:
         return ai_insight_service.analyze_reverse_goal(
             req=payload,
             context_note=payload.context_note
         )
     except AIInsightServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message
-        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -117,26 +87,25 @@ def calculate_and_analyze_reverse_goal_endpoint(payload: ReverseGoalRequest):
         )
 
 
-
 @router.get(
     "/saved",
     response_model=List[GoalResponse],
-    summary="List all saved user financial goals"
+    summary="List all saved goals for the authenticated user"
 )
-def list_saved_goals():
-    """List tracked user goals stored in repository."""
-    return goal_service.repository.get_all()
+def list_saved_goals(user_id: str = Query(..., description="Authenticated user ID")):
+    """List goals for this user only — never returns another user's goals."""
+    return goal_service.get_saved_goals(user_id)
 
 
 @router.post(
     "/save",
     response_model=GoalResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Save a financial goal"
+    summary="Save a financial goal for the authenticated user"
 )
-def save_goal(payload: GoalCreateRequest):
-    """Save a new goal for ongoing tracking."""
-    return goal_service.repository.create(payload)
+def save_goal(payload: GoalCreateRequest, user_id: str = Query(..., description="Authenticated user ID")):
+    """Save a new goal. Backend persists to DB and returns the created record."""
+    return goal_service.save_goal(user_id, payload)
 
 
 @router.post(
@@ -147,16 +116,14 @@ def save_goal(payload: GoalCreateRequest):
 )
 def evaluate_saved_goal_endpoint(
     goal_id: str,
+    user_id: str = Query(..., description="Authenticated user ID"),
     payload: Optional[SavedGoalAnalysisRequest] = Body(default=None)
 ):
-    """
-    Evaluates an existing saved goal from the repository:
-    - Resolves the goal record (title, target amount, current savings, target months)
-    - Performs deterministic forward goal calculation
-    - Maps the resolved goal into the AI goal_analysis payload
-    - Returns saved goal details, calculation output, and structured AI insights
-    """
     req_data = payload or SavedGoalAnalysisRequest()
+    # Verify the goal belongs to this user
+    goal = goal_service.get_goal_by_id(user_id, goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found for this user")
     try:
         return ai_insight_service.analyze_saved_goal(
             goal_id=goal_id,
@@ -167,10 +134,7 @@ def evaluate_saved_goal_endpoint(
             context_note=req_data.context_note
         )
     except AIInsightServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message
-        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     except HTTPException:
         raise
     except Exception as exc:
@@ -183,12 +147,15 @@ def evaluate_saved_goal_endpoint(
 @router.delete(
     "/saved/{goal_id}",
     status_code=status.HTTP_200_OK,
-    summary="Delete a saved goal"
+    summary="Delete a saved goal (scoped to user)"
 )
-def delete_saved_goal(goal_id: str):
-    success = goal_service.repository.delete(goal_id)
+def delete_saved_goal(
+    goal_id: str,
+    user_id: str = Query(..., description="Authenticated user ID")
+):
+    success = goal_service.delete_goal(user_id, goal_id)
     return {
-        "success": True, 
-        "message": f"Goal {goal_id} deleted successfully." if success else f"Goal {goal_id} was already removed.",
+        "success": True,
+        "message": f"Goal {goal_id} deleted." if success else f"Goal {goal_id} was not found.",
         "deleted": success
     }

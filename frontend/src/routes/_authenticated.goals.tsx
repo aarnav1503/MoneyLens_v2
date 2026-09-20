@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { Badge, PageHeader, Panel, Progress } from "@/components/dashboard/ui";
-import { currency, goalDetails as mockGoalDetails } from "@/lib/dashboard-data";
+import { currency } from "@/lib/dashboard-data";
 import { useGoals, useCreateGoal, useDeleteGoal } from "@/hooks/use-money-lens";
 import { Plus, Trash2, X, Check } from "lucide-react";
 
@@ -56,17 +56,7 @@ function GoalsPage() {
           isLive: true,
         };
       })
-    : mockGoalDetails.map((g) => ({
-        id: g.name,
-        name: g.name,
-        current: g.current,
-        target: g.target,
-        monthly: g.monthly,
-        monthsLeft: Math.ceil((g.target - g.current) / g.monthly),
-        state: g.state,
-        note: g.note,
-        isLive: false,
-      }));
+    : [];
 
   const saved = displayGoals.reduce((s, g) => s + g.current, 0);
   const target = displayGoals.reduce((s, g) => s + g.target, 0);
@@ -257,6 +247,11 @@ function GoalsPage() {
             </div>
           );
         })}
+        {displayGoals.length === 0 && (
+          <div className="panel p-12 text-center text-muted-foreground">
+            No goals set yet. Click "Add Goal" to get started!
+          </div>
+        )}
       </section>
     </AppShell>
   );

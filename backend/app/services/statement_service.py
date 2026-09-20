@@ -56,6 +56,8 @@ CATEGORY_KEYWORDS = {
     "Investments": ["sip", "mutual fund", "mf", "nps", "ppf", "rd", "fd", "fixed deposit",
                     "recurring deposit", "groww", "zerodha", "upstox", "angel", "hdfc securities",
                     "icici direct", "kotak securities", "motilal"],
+    "EMI/Loan": ["emi", "loan", "installment", "home loan", "car loan", "personal loan",
+                 "education loan", "bajaj finserv", "hdfc ltd", "lic housing"],
 }
 
 ESSENTIAL_CATEGORIES = {"Food", "Utilities", "Healthcare", "Education", "Transport"}
@@ -214,17 +216,10 @@ class StatementService:
 
         return raw_txs
 
-    def parse_pdf_content(self, content_bytes: bytes) -> List[Dict[str, Any]]:
-        """Parses PDF binary stream and extracts structured transaction records from Indian bank statements."""
+    def _parse_text_lines(self, full_text: str) -> List[Dict[str, Any]]:
+        """Parses extracted text lines to find transactions."""
         raw_txs: List[Dict[str, Any]] = []
         try:
-            import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(content_bytes))
-            full_text = ""
-            for page in reader.pages:
-                t = page.extract_text()
-                if t:
-                    full_text += "\n" + t
 
             date_pattern = re.compile(
                 r'(\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}[/-]\d{2}[/-]\d{2}\b|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4}\b)',
@@ -307,9 +302,20 @@ class StatementService:
                 })
 
         except Exception as e:
-            print(f"Error parsing PDF statement: {e}")
+            print(f"Error parsing text lines: {e}")
 
         return raw_txs
+
+    def parse_pdf_content(self, content_bytes: bytes) -> List[Dict[str, Any]]:
+        """Parses PDF binary stream and extracts structured transaction records from Indian bank statements."""
+        from app.services.ocr_service import OcrService
+        ocr = OcrService()
+        
+        text, source = ocr.extract_text_from_pdf(content_bytes)
+        if not text:
+            return []
+            
+        return ocr.extract_transactions_with_confidence(text, source)
 
     def _detect_salary_income(self, txs: List[Dict[str, Any]]) -> Optional[float]:
         """
@@ -348,6 +354,16 @@ class StatementService:
                 return max(large_credits)
 
         return None
+
+    def _detect_emi_payments(self, txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [t for t in txs if t["type"] == "debit" and self._categorize(t["description"]) == "EMI/Loan"]
+
+    def _detect_investments(self, txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [t for t in txs if t["type"] == "debit" and self._categorize(t["description"]) == "Investments"]
+
+    def _detect_recurring_payments(self, txs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        # For statement-based detection, we just look at Subscriptions/Utilities that we already categorized
+        return [t for t in txs if t["type"] == "debit" and self._categorize(t["description"]) in {"Subscriptions", "Utilities"}]
 
     def process_statement(
         self,
@@ -416,6 +432,63 @@ class StatementService:
             )
 
         stmt_id = f"stmt_{uuid.uuid4().hex[:8]}"
+        
+        # --- Run detection heuristics for pending observations ---
+        detected_income = self._detect_salary_income(raw_txs)
+        detected_emis = self._detect_emi_payments(raw_txs)
+        detected_invs = self._detect_investments(raw_txs)
+        detected_recurring = self._detect_recurring_payments(raw_txs)
+
+        from app.schemas.statements import PendingObservation
+        current_profile = self.profile_repo.get_profile(user_id)
+        current_prof_dict = current_profile.model_dump() if current_profile else {}
+        pending_obs: List[PendingObservation] = []
+
+        if detected_income and detected_income > 0:
+            pending_obs.append(PendingObservation(
+                type="salary_detected",
+                field="monthly_income",
+                amount=detected_income,
+                description="Salary / Income Deposit",
+                confidence=0.9,
+                current_value=current_prof_dict.get("monthly_income", 0.0)
+            ))
+            
+        if detected_emis:
+            total_emi = sum(t["amount"] for t in detected_emis)
+            pending_obs.append(PendingObservation(
+                type="emi_detected",
+                field="active_emis",
+                amount=total_emi,
+                description=f"EMI Payments ({len(detected_emis)} found)",
+                confidence=0.85,
+                current_value=current_prof_dict.get("active_emis", 0.0)
+            ))
+            
+        if detected_invs:
+            total_inv = sum(t["amount"] for t in detected_invs)
+            pending_obs.append(PendingObservation(
+                type="investment_detected",
+                field="monthly_investments",
+                amount=total_inv,
+                description=f"Investments & SIPs ({len(detected_invs)} found)",
+                confidence=0.85,
+                current_value=current_prof_dict.get("monthly_investments", 0.0)
+            ))
+            
+        if detected_recurring:
+            total_rec = sum(t["amount"] for t in detected_recurring)
+            pending_obs.append(PendingObservation(
+                type="recurring_detected",
+                field="other_recurring_expenses",
+                amount=total_rec,
+                description=f"Recurring Payments ({len(detected_recurring)} found)",
+                confidence=0.8,
+                current_value=current_prof_dict.get("other_recurring_expenses", 0.0)
+            ))
+
+        extraction_source = raw_txs[0].get("source", "text") if raw_txs else "text"
+
         summary = StatementAnalysisSummary(
             statement_id=stmt_id,
             filename=filename,
@@ -430,6 +503,12 @@ class StatementService:
             essential_spending=essential_spending,
             discretionary_spending=discretionary_spending,
             recurring_spending=recurring_spending,
+            extraction_source=extraction_source,
+            detected_salary=detected_income,
+            detected_emis=detected_emis,
+            detected_investments=detected_invs,
+            detected_recurring=detected_recurring,
+            pending_observations=pending_obs,
             observations=[
                 f"Processed {len(parsed_items)} statement transactions totaling ₹{total_debits:,.0f} in outflows and ₹{total_credits:,.0f} in inflows.",
                 f"Essential expenses represent {round((essential_spending / total_debits * 100), 1) if total_debits > 0 else 0}% of debits.",
@@ -441,32 +520,7 @@ class StatementService:
 
         # Store in repository
         if parsed_items:
-            self.statement_repo.save_statement_summary(user_id, summary, parsed_items)
-
-            # --- Sync financial profile with statement-derived real data ---
-            profile_updates: Dict[str, Any] = {}
-
-            # Detect income/salary from credits
-            detected_income = self._detect_salary_income(raw_txs)
-            if detected_income and detected_income > 0:
-                profile_updates["monthly_income"] = detected_income
-            elif total_credits > 0:
-                # Fallback: total credits as income estimate
-                profile_updates["monthly_income"] = total_credits
-
-            if essential_spending > 0:
-                profile_updates["essential_expenses"] = essential_spending
-            if discretionary_spending > 0:
-                profile_updates["discretionary_expenses"] = discretionary_spending
-            if recurring_spending > 0:
-                profile_updates["other_recurring_expenses"] = recurring_spending
-
-            if profile_updates:
-                try:
-                    self.profile_repo.upsert_profile(user_id, FinancialProfileUpdate(**profile_updates))
-                    print(f"[StatementService] Profile synced for {user_id}: {profile_updates}")
-                except Exception as e:
-                    print(f"[StatementService] Error syncing profile: {e}")
+            self.statement_repo.save_statement_summary(user_id, summary, parsed_items, filename=filename)
 
         # Ephemeral processing compliance
         if not save_raw:
