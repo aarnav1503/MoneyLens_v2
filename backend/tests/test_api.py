@@ -38,7 +38,7 @@ def test_root_index_endpoint():
 
 
 def test_transactions_endpoints():
-    # 1. Create transaction
+    # 1. Create income and expense transactions
     create_payload = {
         "title": "Freelance Design Gig",
         "type": "income",
@@ -55,18 +55,29 @@ def test_transactions_endpoints():
     assert created_txn["amount"] == 15000.0
     txn_id = created_txn["id"]
 
+    expense_payload = {
+        "title": "Groceries",
+        "type": "expense",
+        "amount": 3000.0,
+        "category": "Food",
+        "transaction_date": "2026-09-16",
+        "is_recurring": False,
+        "recurring_frequency": "none"
+    }
+    client.post("/api/v1/transactions", json=expense_payload)
+
     # 2. List transactions
     list_resp = client.get("/api/v1/transactions")
     assert list_resp.status_code == 200
     txns = list_resp.json()
-    assert len(txns) >= 1
+    assert len(txns) >= 2
 
     # 3. Get summary
     summary_resp = client.get("/api/v1/transactions/summary")
     assert summary_resp.status_code == 200
     summary = summary_resp.json()
-    assert summary["total_income"] > 0
-    assert summary["total_expenses"] > 0
+    assert summary["total_income"] >= 15000.0
+    assert summary["total_expenses"] >= 3000.0
     assert "category_wise_spending" in summary
     assert "recurring_summary" in summary
 

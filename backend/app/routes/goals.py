@@ -92,9 +92,9 @@ def calculate_and_analyze_reverse_goal_endpoint(payload: ReverseGoalRequest):
     response_model=List[GoalResponse],
     summary="List all saved goals for the authenticated user"
 )
-def list_saved_goals(user_id: str = Query(..., description="Authenticated user ID")):
+def list_saved_goals(user_id: Optional[str] = Query("default", description="Authenticated user ID")):
     """List goals for this user only — never returns another user's goals."""
-    return goal_service.get_saved_goals(user_id)
+    return goal_service.get_saved_goals(user_id or "default")
 
 
 @router.post(
@@ -103,9 +103,9 @@ def list_saved_goals(user_id: str = Query(..., description="Authenticated user I
     status_code=status.HTTP_201_CREATED,
     summary="Save a financial goal for the authenticated user"
 )
-def save_goal(payload: GoalCreateRequest, user_id: str = Query(..., description="Authenticated user ID")):
+def save_goal(payload: GoalCreateRequest, user_id: Optional[str] = Query("default", description="Authenticated user ID")):
     """Save a new goal. Backend persists to DB and returns the created record."""
-    return goal_service.save_goal(user_id, payload)
+    return goal_service.save_goal(user_id or "default", payload)
 
 
 @router.post(
@@ -116,12 +116,13 @@ def save_goal(payload: GoalCreateRequest, user_id: str = Query(..., description=
 )
 def evaluate_saved_goal_endpoint(
     goal_id: str,
-    user_id: str = Query(..., description="Authenticated user ID"),
+    user_id: Optional[str] = Query("default", description="Authenticated user ID"),
     payload: Optional[SavedGoalAnalysisRequest] = Body(default=None)
 ):
     req_data = payload or SavedGoalAnalysisRequest()
+    effective_user_id = user_id or "default"
     # Verify the goal belongs to this user
-    goal = goal_service.get_goal_by_id(user_id, goal_id)
+    goal = goal_service.get_goal_by_id(effective_user_id, goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found for this user")
     try:
@@ -151,9 +152,9 @@ def evaluate_saved_goal_endpoint(
 )
 def delete_saved_goal(
     goal_id: str,
-    user_id: str = Query(..., description="Authenticated user ID")
+    user_id: Optional[str] = Query("default", description="Authenticated user ID")
 ):
-    success = goal_service.delete_goal(user_id, goal_id)
+    success = goal_service.delete_goal(user_id or "default", goal_id)
     return {
         "success": True,
         "message": f"Goal {goal_id} deleted." if success else f"Goal {goal_id} was not found.",

@@ -36,9 +36,8 @@ from app.schemas.radar import RadarProfileRequest
 def test_transaction_service_and_repository():
     repo = InMemoryTransactionRepository()
     initial_summary = repo.get_summary()
-    assert initial_summary.total_income > 0
-    assert initial_summary.total_expenses > 0
-    assert initial_summary.net_savings > 0
+    assert initial_summary.total_income == 0.0
+    assert initial_summary.total_expenses == 0.0
 
     # Add a custom/unusual category transaction
     new_txn = repo.create(TransactionCreate(
@@ -52,7 +51,7 @@ def test_transaction_service_and_repository():
     assert new_txn.category == "Digital Assets"
 
     updated_summary = repo.get_summary()
-    assert updated_summary.total_income == initial_summary.total_income + 5000.0
+    assert updated_summary.total_income == 5000.0
 
 
 def test_empty_transaction_repository_summary():

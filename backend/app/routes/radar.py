@@ -22,7 +22,7 @@ router = APIRouter(prefix="/radar", tags=["Financial Radar"])
     status_code=status.HTTP_200_OK,
     summary="Get Financial Radar health and alerts"
 )
-def get_financial_radar():
+def get_financial_radar(user_id: Optional[str] = Query(None, description="Authenticated user ID")):
     """
     Evaluates rule-based radar signals based on current user transactions:
     - Recurring fixed obligations burden
@@ -31,7 +31,7 @@ def get_financial_radar():
     - Cash flow deficit / tight margin alerts
     - Deterministic 0-100 Financial Health Score
     """
-    return radar_service.evaluate_radar()
+    return radar_service.evaluate_radar(user_id=user_id)
 
 
 @router.post(

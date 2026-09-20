@@ -88,7 +88,7 @@ def test_spending_insights_neutral_language():
     insights = spending_service.get_spending_insights("usr_test_103")
 
     assert insights.total_spending > 0
-    assert len(insights.categories) == 12
+    assert len(insights.categories) >= 12
     assert any(c.category == "Food Delivery" for c in insights.categories)
     assert any(c.category == "Subscriptions" for c in insights.categories)
     

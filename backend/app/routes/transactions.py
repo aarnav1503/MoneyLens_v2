@@ -21,12 +21,15 @@ router = APIRouter(prefix="/transactions", tags=["Transactions"])
     status_code=status.HTTP_201_CREATED,
     summary="Record a new transaction"
 )
-def create_transaction(payload: TransactionCreate):
+def create_transaction(
+    payload: TransactionCreate,
+    user_id: Optional[str] = Query("default", description="Authenticated user ID")
+):
     """
     Add a new income or expense transaction.
     Accepts category, amount, date, recurring settings, and notes.
     """
-    return transaction_repository.create(payload)
+    return transaction_repository.create(user_id or "default", payload)
 
 
 @router.get(
@@ -35,12 +38,14 @@ def create_transaction(payload: TransactionCreate):
     summary="List all recorded transactions"
 )
 def list_transactions(
+    user_id: Optional[str] = Query("default", description="Authenticated user ID"),
     transaction_type: Optional[TransactionType] = Query(None, description="Filter by 'income' or 'expense'"),
     category: Optional[str] = Query(None, description="Filter by category name"),
     is_recurring: Optional[bool] = Query(None, description="Filter by recurring flag")
 ):
     """Retrieve all recorded transactions with optional filtering."""
     return transaction_repository.get_all(
+        user_id=user_id or "default",
         transaction_type=transaction_type,
         category=category,
         is_recurring=is_recurring
@@ -52,7 +57,7 @@ def list_transactions(
     response_model=TransactionSummaryResponse,
     summary="Get aggregated transaction summary"
 )
-def get_transaction_summary():
+def get_transaction_summary(user_id: Optional[str] = Query("default", description="Authenticated user ID")):
     """
     Calculate and return:
     - Total income
@@ -62,7 +67,7 @@ def get_transaction_summary():
     - Category-wise spending breakdown
     - Recurring commitments breakdown
     """
-    return transaction_repository.get_summary()
+    return transaction_repository.get_summary(user_id or "default")
 
 
 @router.get(
@@ -70,8 +75,11 @@ def get_transaction_summary():
     response_model=TransactionResponse,
     summary="Get a transaction by ID"
 )
-def get_transaction(txn_id: str):
-    record = transaction_repository.get_by_id(txn_id)
+def get_transaction(
+    txn_id: str,
+    user_id: Optional[str] = Query("default", description="Authenticated user ID")
+):
+    record = transaction_repository.get_by_id(user_id or "default", txn_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -85,8 +93,11 @@ def get_transaction(txn_id: str):
     status_code=status.HTTP_200_OK,
     summary="Delete a transaction"
 )
-def delete_transaction(txn_id: str):
-    success = transaction_repository.delete(txn_id)
+def delete_transaction(
+    txn_id: str,
+    user_id: Optional[str] = Query("default", description="Authenticated user ID")
+):
+    success = transaction_repository.delete(user_id or "default", txn_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

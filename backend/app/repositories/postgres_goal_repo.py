@@ -5,7 +5,7 @@ ALL queries are scoped to user_id — goals are never shared across users.
 """
 
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Union
 from app.core.database import get_db_connection, DatabaseConnectionError, DatabaseNotConfiguredError
 from app.core.config import settings
 from app.schemas.goals import GoalCreateRequest, GoalResponse
@@ -18,7 +18,11 @@ _SHARED_GOALS: dict = {}  # { user_id: { goal_id: dict } }
 class PostgresGoalRepository:
     """PostgreSQL / RDS implementation of the Goal Repository, scoped per user."""
 
-    def create(self, user_id: str, data: GoalCreateRequest) -> GoalResponse:
+    def create(self, user_id: Union[str, GoalCreateRequest] = "default", data: Optional[GoalCreateRequest] = None) -> GoalResponse:
+        if isinstance(user_id, GoalCreateRequest):
+            data = user_id
+            user_id = "default"
+
         goal_id = f"goal_{uuid.uuid4().hex[:12]}"
 
         if settings.is_db_configured():
@@ -63,7 +67,7 @@ class PostgresGoalRepository:
         _SHARED_GOALS.setdefault(user_id, {})[goal_id] = record
         return GoalResponse(**record)
 
-    def get_all(self, user_id: str) -> List[GoalResponse]:
+    def get_all(self, user_id: str = "default") -> List[GoalResponse]:
         if settings.is_db_configured():
             query = """
             SELECT id, user_id, title, target_amount, current_savings_allocated,
@@ -85,7 +89,13 @@ class PostgresGoalRepository:
         user_goals = _SHARED_GOALS.get(user_id, {})
         return [GoalResponse(**r) for r in user_goals.values()]
 
-    def get_by_id(self, user_id: str, goal_id: str) -> Optional[GoalResponse]:
+    def get_by_id(self, user_id_or_goal_id: str, goal_id: Optional[str] = None) -> Optional[GoalResponse]:
+        if goal_id is None:
+            goal_id = user_id_or_goal_id
+            user_id = "default"
+        else:
+            user_id = user_id_or_goal_id
+
         if settings.is_db_configured():
             query = """
             SELECT id, user_id, title, target_amount, current_savings_allocated,
@@ -107,7 +117,13 @@ class PostgresGoalRepository:
         record = _SHARED_GOALS.get(user_id, {}).get(goal_id)
         return GoalResponse(**record) if record else None
 
-    def delete(self, user_id: str, goal_id: str) -> bool:
+    def delete(self, user_id_or_goal_id: str, goal_id: Optional[str] = None) -> bool:
+        if goal_id is None:
+            goal_id = user_id_or_goal_id
+            user_id = "default"
+        else:
+            user_id = user_id_or_goal_id
+
         if settings.is_db_configured():
             query = "DELETE FROM goals WHERE id = %(id)s AND user_id = %(user_id)s RETURNING id;"
             try:

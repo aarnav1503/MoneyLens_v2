@@ -33,10 +33,14 @@ class InMemoryTransactionRepository:
         """No demo data. Users start with an empty transaction store."""
         pass
 
-    def create(self, data: TransactionCreate) -> TransactionResponse:
+    def create(self, user_id: Union[str, TransactionCreate] = "default", data: Optional[TransactionCreate] = None) -> TransactionResponse:
+        if isinstance(user_id, TransactionCreate):
+            data = user_id
+            user_id = "default"
         txn_id = f"txn_{uuid.uuid4().hex[:12]}"
         record = {
             "id": txn_id,
+            "user_id": user_id,
             **data.model_dump()
         }
         self._storage[txn_id] = record
@@ -44,12 +48,15 @@ class InMemoryTransactionRepository:
 
     def get_all(
         self,
+        user_id: str = "default",
         transaction_type: Optional[TransactionType] = None,
         category: Optional[str] = None,
         is_recurring: Optional[bool] = None
     ) -> List[TransactionResponse]:
         results = []
         for record in self._storage.values():
+            if record.get("user_id") != user_id:
+                continue
             if transaction_type and record["type"] != transaction_type:
                 continue
             if category and record["category"].lower() != category.lower():
@@ -61,19 +68,29 @@ class InMemoryTransactionRepository:
         results.sort(key=lambda x: x.transaction_date, reverse=True)
         return results
 
-    def get_by_id(self, txn_id: str) -> Optional[TransactionResponse]:
+    def get_by_id(self, user_id_or_txn_id: str, txn_id: Optional[str] = None) -> Optional[TransactionResponse]:
+        if txn_id is None:
+            txn_id = user_id_or_txn_id
+            user_id = "default"
+        else:
+            user_id = user_id_or_txn_id
         record = self._storage.get(txn_id)
-        if record:
+        if record and record.get("user_id") == user_id:
             return TransactionResponse(**record)
         return None
 
-    def delete(self, txn_id: str) -> bool:
-        if txn_id in self._storage:
+    def delete(self, user_id_or_txn_id: str, txn_id: Optional[str] = None) -> bool:
+        if txn_id is None:
+            txn_id = user_id_or_txn_id
+            user_id = "default"
+        else:
+            user_id = user_id_or_txn_id
+        if txn_id in self._storage and self._storage[txn_id].get("user_id") == user_id:
             del self._storage[txn_id]
             return True
         return False
 
-    def get_summary(self) -> TransactionSummaryResponse:
+    def get_summary(self, user_id: str = "default") -> TransactionSummaryResponse:
         total_income = 0.0
         total_expenses = 0.0
         recurring_income = 0.0
@@ -83,7 +100,9 @@ class InMemoryTransactionRepository:
         category_totals: Dict[str, float] = defaultdict(float)
         category_counts: Dict[str, int] = defaultdict(int)
 
-        for record in self._storage.values():
+        user_records = [r for r in self._storage.values() if r.get("user_id") == user_id]
+
+        for record in user_records:
             amount = float(record["amount"])
             if record["type"] == TransactionType.INCOME:
                 total_income += amount
@@ -127,7 +146,7 @@ class InMemoryTransactionRepository:
                 total_recurring_expenses=round(recurring_expenses, 2),
                 recurring_items_count=recurring_count
             ),
-            total_transactions=len(self._storage)
+            total_transactions=len(user_records)
         )
 
 
@@ -153,25 +172,26 @@ class TransactionRepositoryProxy:
             return self._postgres
         return self._in_memory
 
-    def create(self, data: TransactionCreate) -> TransactionResponse:
-        return self.active_repo.create(data)
+    def create(self, user_id: Union[str, TransactionCreate] = "default", data: Optional[TransactionCreate] = None) -> TransactionResponse:
+        return self.active_repo.create(user_id, data)
 
     def get_all(
         self,
+        user_id: str = "default",
         transaction_type: Optional[TransactionType] = None,
         category: Optional[str] = None,
         is_recurring: Optional[bool] = None
     ) -> List[TransactionResponse]:
-        return self.active_repo.get_all(transaction_type, category, is_recurring)
+        return self.active_repo.get_all(user_id, transaction_type, category, is_recurring)
 
-    def get_by_id(self, txn_id: str) -> Optional[TransactionResponse]:
-        return self.active_repo.get_by_id(txn_id)
+    def get_by_id(self, user_id_or_txn_id: str, txn_id: Optional[str] = None) -> Optional[TransactionResponse]:
+        return self.active_repo.get_by_id(user_id_or_txn_id, txn_id)
 
-    def delete(self, txn_id: str) -> bool:
-        return self.active_repo.delete(txn_id)
+    def delete(self, user_id_or_txn_id: str, txn_id: Optional[str] = None) -> bool:
+        return self.active_repo.delete(user_id_or_txn_id, txn_id)
 
-    def get_summary(self) -> TransactionSummaryResponse:
-        return self.active_repo.get_summary()
+    def get_summary(self, user_id: str = "default") -> TransactionSummaryResponse:
+        return self.active_repo.get_summary(user_id)
 
 
 # Singleton instance for repository

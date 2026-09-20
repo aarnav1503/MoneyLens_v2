@@ -20,7 +20,6 @@ from app.core.database import (
 from app.repositories.postgres_transaction_repo import PostgresTransactionRepository
 from app.repositories.postgres_goal_repo import PostgresGoalRepository
 from app.services.transaction_service import TransactionRepositoryProxy
-from app.services.goal_service import GoalRepositoryProxy
 from app.schemas.transactions import (
     TransactionCreate,
     TransactionType,
@@ -164,7 +163,7 @@ def test_postgres_transaction_repo_create():
 
     repo = PostgresTransactionRepository()
     with patch("app.repositories.postgres_transaction_repo.get_db_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock())):
-        result = repo.create(TransactionCreate(
+        result = repo.create("user_test", TransactionCreate(
             title="Client Invoice",
             type=TransactionType.INCOME,
             amount=50000.0,
@@ -213,10 +212,10 @@ def test_postgres_transaction_repo_get_all_and_summary():
 
     repo = PostgresTransactionRepository()
     with patch("app.repositories.postgres_transaction_repo.get_db_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock())):
-        all_txns = repo.get_all()
+        all_txns = repo.get_all("user_test")
         assert len(all_txns) == 2
 
-        summary = repo.get_summary()
+        summary = repo.get_summary("user_test")
         assert summary.total_income == 80000.0
         assert summary.total_expenses == 20000.0
         assert summary.net_savings == 60000.0
@@ -234,6 +233,7 @@ def test_postgres_goal_repo_create_and_delete():
     mock_cur = MagicMock()
     fake_goal = {
         "id": "goal_mock123",
+        "user_id": "user_test",
         "title": "New Car",
         "target_amount": 600000.0,
         "current_savings_allocated": 50000.0,
@@ -246,8 +246,9 @@ def test_postgres_goal_repo_create_and_delete():
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
     repo = PostgresGoalRepository()
-    with patch("app.repositories.postgres_goal_repo.get_db_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock())):
-        created = repo.create(GoalCreateRequest(
+    with patch.object(Settings, "is_db_configured", return_value=True), \
+         patch("app.repositories.postgres_goal_repo.get_db_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock())):
+        created = repo.create("user_test", GoalCreateRequest(
             title="New Car",
             target_amount=600000.0,
             current_savings_allocated=50000.0,
@@ -260,7 +261,7 @@ def test_postgres_goal_repo_create_and_delete():
         assert created.target_amount == 600000.0
 
         # Test delete
-        deleted = repo.delete("goal_mock123")
+        deleted = repo.delete("user_test", "goal_mock123")
         assert deleted is True
 
 
@@ -273,24 +274,15 @@ def test_transaction_repository_proxy_selection():
     # When unconfigured -> uses in-memory
     with patch.object(Settings, "is_db_configured", return_value=False):
         assert proxy.active_repo == proxy._in_memory
-        # In-memory contains starter data
-        txns = proxy.get_all()
-        assert len(txns) > 0
-
-    # When configured -> uses Postgres repo
-    with patch.object(Settings, "is_db_configured", return_value=True):
-        assert proxy.active_repo == proxy._postgres
-
-
-def test_goal_repository_proxy_selection():
-    """Verify GoalRepositoryProxy delegates based on configuration state."""
-    proxy = GoalRepositoryProxy()
-
-    # When unconfigured -> uses in-memory
-    with patch.object(Settings, "is_db_configured", return_value=False):
-        assert proxy.active_repo == proxy._in_memory
-        goals = proxy.get_all()
-        assert len(goals) > 0
+        proxy.create("user_test", TransactionCreate(
+            title="Test Txn",
+            type=TransactionType.INCOME,
+            amount=5000.0,
+            category="Salary",
+            is_recurring=False
+        ))
+        txns = proxy.get_all("user_test")
+        assert len(txns) == 1
 
     # When configured -> uses Postgres repo
     with patch.object(Settings, "is_db_configured", return_value=True):

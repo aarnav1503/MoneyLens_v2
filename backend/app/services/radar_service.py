@@ -20,16 +20,24 @@ class RadarService:
     """Rule-based Financial Radar detection engine."""
 
     @staticmethod
-    def evaluate_radar(profile: Optional[RadarProfileRequest] = None) -> FinancialRadarResponse:
-        # Retrieve transactions from repository
-        summary = transaction_repository.get_summary()
-        all_txns = transaction_repository.get_all()
+    def evaluate_radar(
+        profile: Optional[RadarProfileRequest] = None,
+        user_id: Optional[str] = None
+    ) -> FinancialRadarResponse:
+        effective_user_id = user_id or "default"
+        try:
+            summary = transaction_repository.get_summary(effective_user_id)
+            all_txns = transaction_repository.get_all(user_id=effective_user_id)
+        except Exception:
+            summary = None
+            all_txns = []
 
         # Determine baseline numbers (either from profile request override or from recorded transactions)
-        monthly_income = (profile.monthly_income if profile and profile.monthly_income is not None 
-                          else (summary.monthly_estimated_income if summary.monthly_estimated_income > 0 else 80000.0))
-        monthly_expenses = (profile.monthly_expenses if profile and profile.monthly_expenses is not None 
-                            else (summary.monthly_estimated_expenses if summary.monthly_estimated_expenses > 0 else 45000.0))
+        est_income = summary.monthly_estimated_income if summary and summary.monthly_estimated_income > 0 else 80000.0
+        est_expenses = summary.monthly_estimated_expenses if summary and summary.monthly_estimated_expenses > 0 else 45000.0
+
+        monthly_income = (profile.monthly_income if profile and profile.monthly_income is not None else est_income)
+        monthly_expenses = (profile.monthly_expenses if profile and profile.monthly_expenses is not None else est_expenses)
         existing_emi = (profile.existing_emi if profile and profile.existing_emi is not None else 0.0)
         current_savings = (profile.current_savings if profile and profile.current_savings is not None else 200000.0)
 
@@ -126,7 +134,8 @@ class RadarService:
 
         # Rule 4: Upcoming Recurring Commitments Check
         rules_evaluated += 1
-        recurring_exp = summary.recurring_summary.total_recurring_expenses
+        recurring_exp = summary.recurring_summary.total_recurring_expenses if summary else 0.0
+        recurring_items_count = summary.recurring_summary.recurring_items_count if summary else 0
         recurring_ratio_pct = round((recurring_exp / monthly_income * 100), 2) if monthly_income > 0 else (100.0 if recurring_exp > 0 else 0.0)
         if recurring_ratio_pct > 50.0:
             health_penalties += 15
@@ -147,7 +156,7 @@ class RadarService:
                 category=AlertCategory.RECURRING_EXPENSE,
                 severity=SeverityLevel.INFO,
                 title="Tracked Recurring Commitments",
-                message=f"{summary.recurring_summary.recurring_items_count} recurring items totaling ₹{recurring_exp:,.2f}/month.",
+                message=f"{recurring_items_count} recurring items totaling ₹{recurring_exp:,.2f}/month.",
                 metric_value=recurring_exp,
                 threshold_value=monthly_income * 0.5 if monthly_income > 0 else 0.0,
                 trigger_rule="Fixed commitments within healthy range (<= 50%)",
